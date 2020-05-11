@@ -37,10 +37,87 @@ const Room = (props) => {
     const youtubePlayer = useRef();
     const [videoID, setVideoID] = useState("");
 
-   
+    useEffect(() => {
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+            userVideoRef.current.srcObject = stream;
+            socketRef.current = io.connect("/");
+            socketRef.current.emit("join room", props.match.params.roomID);
+
+            socketRef.current.on("other user", partnerID => {
+                if (partnerID) {
+                    peerRef.current = createPeer(partnerID, socketRef.current.id, stream);
+                }
+            });
+
+            socketRef.current.on("caller signal", incoming => {
+                peerRef.current = addPeer(incoming.signal, incoming.callerID, stream);
+            });
+
+            socketRef.current.on("callee signal", signal => {
+                peerRef.current.signal(signal);
+            });
+
+            socketRef.current.on("room full", () => {
+                alert("room is full");
+            })
+        })
+    }, []);
+
+    function createPeer(partnerID, callerID, stream) {
+        const peer = new Peer({
+            initiator: true,
+            trickle: false,
+            stream,
+        });
+
+        peer.on("signal", signal => {
+            const payload = {
+                partnerID,
+                callerID,
+                signal
+            }
+            socketRef.current.emit("call partner", payload);
+        });
+
+        peer.on("stream", handleStream);
+
+        return peer;
+    }
+
+    function addPeer(incomingSignal, callerID, stream) {
+        const peer = new Peer({
+            initiator: false,
+            trickle: false,
+            stream,
+        });
+
+        peer.on("signal", signal => {
+            const payload = {
+                callerID,
+                signal
+            }
+            socketRef.current.emit("accept call", payload);
+        });
+
+        peer.on("stream", handleStream);
+
+        peer.signal(incomingSignal);
+        return peer;
+    }
+
+
+    function handleStream(stream) {
+        partnerVideo.current.srcObject = stream;
+    }
+
+
     return (
         <Container>
-          <h1>I will be the video chat screen</h1>
+            <LeftRow>
+                <Video muted autoPlay ref={userVideoRef} />
+                <Video muted autoPlay ref={partnerVideo} />
+            </LeftRow>
+            <RightRow />
         </Container>
     );
 };
